@@ -1,0 +1,74 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <DHT.h>
+#include <ArduinoJson.h> 
+
+#define dhtpin 14
+#define DHTTYPE DHT11
+
+DHT tempSensor = DHT(dhtpin, DHTTYPE);
+
+const char* ssid = "NOKIA-33F0";
+const char* password = "VCkS68yFLs";
+const char* serverUrl = "http://192.168.50.61:5000/update-sensor";
+
+const int trigPin = 27;
+const int echoPin = 26;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  tempSensor.begin();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected!");
+}
+
+void loop() {
+  // 1. Get Sensor Readings (Casting to int to save space)
+  int humidity = (int)tempSensor.readHumidity();
+  int temp = (int)tempSensor.readTemperature();
+
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+
+  // 2. Build the JSON object
+  StaticJsonDocument<200> doc;
+  doc["sensor_id"] = 1;
+  doc["temp"] = temp;
+  doc["hum"] = humidity;
+  doc["dist"] = duration;
+
+  // Serialize the JSON to a string
+  String jsonPayload;
+  serializeJson(doc, jsonPayload);
+
+  // 3. Send to Python Server
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    
+    //telling server where json is
+    http.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = http.POST(jsonPayload);
+
+    if (httpResponseCode > 0) {
+      Serial.printf("Sent JSON! Server Response: %d\n", httpResponseCode);
+    } else {
+      Serial.printf("Error: %s\n", http.errorToString(httpResponseCode).c_str());
+    }
+    http.end();
+  }
+
+  delay(5000); // 1 second might be too fast 
+}
